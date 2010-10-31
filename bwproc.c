@@ -5,6 +5,8 @@
 #include <math.h>
 #include <assert.h>
 
+#include "bwproc.h"
+
 /*
 #include "rwimg/readimage.h"
 #include "rwimg/writeimage.h"
@@ -18,16 +20,8 @@
 #define CURVE_NUM     2048
 #define CURVE_SHIFT   5
 
-typedef uint16_t sample_t;
-
 #define FLOAT_TO_SAMPLE(f)      ((sample_t)((f) * SAMPLE_MAX))
 #define SAMPLE_MUL(a,b)		((sample_t)(((uint32_t)(a) * (uint32_t)(b)) >> 16))
-
-typedef struct
-{
-	sample_t *curve;
-	sample_t *mask;
-} contrast_layer_t;
 
 static void
 prepare_mixer (float red, float green, float blue, int32_t *red_factor, int32_t *green_factor, int32_t *blue_factor)
