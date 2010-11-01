@@ -9,6 +9,8 @@ typedef struct
 	sample_t *mask;
 } contrast_layer_t;
 
+sample_t* make_logistic_contrast_curve (float v);
+
 void bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 		 int num_cols, int *cols, int num_rows, int *rows,
 		 unsigned char *cache_mask, sample_t *cache,

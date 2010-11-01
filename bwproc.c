@@ -23,6 +23,31 @@
 #define FLOAT_TO_SAMPLE(f)      ((sample_t)((f) * SAMPLE_MAX))
 #define SAMPLE_MUL(a,b)		((sample_t)(((uint32_t)(a) * (uint32_t)(b)) >> 16))
 
+static float
+logistic (float t)
+{
+    return 1.0f / (1.0f + expf (-t));
+}
+
+sample_t*
+make_logistic_contrast_curve (float v)
+{
+	sample_t *curve = malloc (sizeof (sample_t) * CURVE_NUM);
+	float y_crop = logistic (-v);
+	float crop_factor = 1.0f / (1.0f - 2.0f * y_crop);
+	int i;
+
+	assert (curve);
+
+	for (i = 0; i < CURVE_NUM; ++i) {
+		float t = (float)i / (float)(CURVE_NUM - 1) * v * 2.0f - v;
+		float val = (logistic (t) - y_crop) * crop_factor;
+		curve [i] = FLOAT_TO_SAMPLE (val);
+	}
+
+	return curve;
+}
+
 static void
 prepare_mixer (float red, float green, float blue, int32_t *red_factor, int32_t *green_factor, int32_t *blue_factor)
 {
