@@ -95,6 +95,60 @@ bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 	}
 }
 
+void
+bw_process_no_cache_8 (int width, int height,
+		       uint8_t *out_data, int out_pixel_stride, int out_row_stride,
+		       uint8_t *in_data, int in_pixel_stride, int in_row_stride,
+		       int num_cols, int *cols, int num_rows, int *rows,
+		       float red, float green, float blue,
+		       int num_contrast_layers, contrast_layer_t *contrast_layers,
+		       float tint_hue, float tint_amount)
+{
+	int32_t red_factor, green_factor, blue_factor;
+	int i;
+	sample_t f;
+	sample_t saturation;
+	int row, col;
+	uint8_t *out_row;
+	sample_t out_pixel [3];
+
+	for (i = 0; i < num_cols; ++i)
+		assert (cols [i] >= 0 && cols [i] < width);
+	for (i = 0; i < num_rows; ++i)
+		assert (rows [i] >= 0 && rows [i] < height);
+
+	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
+	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
+
+	out_row = out_data;
+	for (row = 0; row < num_rows; ++row) {
+		uint8_t *out = out_row;
+		uint8_t *in_row = in_data + rows [row] * in_row_stride;
+
+		for (col = 0; col < num_cols; ++col) {
+			int pixel = rows [row] * width + cols [col];
+			uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
+			sample_t in [3];
+
+			in [0] = (sample_t)in_8 [0] << 8;
+			in [1] = (sample_t)in_8 [1] << 8;
+			in [2] = (sample_t)in_8 [2] << 8;
+
+#define PIXEL_OUT out_pixel
+#include "procfunc.h"
+#undef PIXEL_OUT
+
+			out [0] = out_pixel [0] >> 8;
+			out [1] = out_pixel [1] >> 8;
+			out [2] = out_pixel [2] >> 8;
+
+			out += out_pixel_stride;
+		}
+
+		out_row += out_row_stride;
+	}
+}
+
 static void
 translate_layers (int num_layers, contrast_layer_t *layers, sample_t **layer_array)
 {
