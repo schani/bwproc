@@ -43,6 +43,45 @@ make_logistic_contrast_curve (float v)
 	return curve;
 }
 
+void
+bw_make_rows_cols (int in_width, int in_height,
+		   int out_width, int out_height,
+		   int rotation,
+		   int **_rows, int **_cols,
+		   int *out_rotated_width, int *out_rotated_height, int *row_major)
+{
+	int *rows, *cols;
+	int i;
+
+	*_rows = rows = (int*)malloc (sizeof (int) * out_height);
+	assert (rows != NULL);
+	for (i = 0; i < out_height; ++i) {
+		if (rotation == 1 || rotation == 2)
+			rows [i] = in_height - 1 - i * in_height / out_height;
+		else
+			rows [i] = i * in_height / out_height;
+	}
+
+	*_cols = cols = (int*)malloc (sizeof (int) * out_width);
+	assert (cols != NULL);
+	for (i = 0; i < out_width; ++i) {
+		if (rotation == 2 || rotation == 3)
+			cols [i] = in_width - 1 - i * in_width / out_width;
+		else
+			cols [i] = i * in_width / out_width;
+	}
+
+	if (rotation == BW_ROTATION_0 || rotation == BW_ROTATION_180) {
+		*out_rotated_width = out_width;
+		*out_rotated_height = out_height;
+		*row_major = 1;
+	} else {
+		*out_rotated_width = out_height;
+		*out_rotated_height = out_width;
+		*row_major = 0;
+	}
+}
+
 static void
 prepare_mixer (float red, float green, float blue, int32_t *red_factor, int32_t *green_factor, int32_t *blue_factor)
 {
@@ -344,6 +383,7 @@ main (int argc, char *argv[])
 	int i;
 	int x, y;
 	int rotation = 0;
+	int row_major, out_rotated_width, out_rotated_height;
 
 	assert (argc == 2 || argc == 3);
 
@@ -360,21 +400,8 @@ main (int argc, char *argv[])
 	out_width = width;
 	out_height = height;
 
-	rows = (int*)malloc (sizeof (int) * out_height);
-	for (i = 0; i < out_height; ++i) {
-		if (rotation == 1 || rotation == 2)
-			rows [i] = height - 1 - i * height / out_height;
-		else
-			rows [i] = i * height / out_height;
-	}
-
-	cols = (int*)malloc (sizeof (int) * out_width);
-	for (i = 0; i < out_width; ++i) {
-		if (rotation == 2 || rotation == 3)
-			cols [i] = width - 1 - i * width / out_width;
-		else
-			cols [i] = i * width / out_width;
-	}
+	bw_make_rows_cols (width, height, out_width, out_height, rotation,
+			   &rows, &cols, &out_rotated_width, &out_rotated_height, &row_major);
 
 	for (i = 0; i < CURVE_NUM; ++i) {
 		contrast_curve [i] = (sample_t)i << CURVE_SHIFT;
@@ -410,54 +437,18 @@ main (int argc, char *argv[])
 	assert (output != NULL);
 
 	for (i = 0; i < 100; ++i) {
-		switch (rotation) {
-			case 0:
-				bw_process_no_cache_8 (width, height,
-						       output, 3, out_width * 3,
-						       orig, 3, width * 3,
-						       out_width, cols, out_height, rows, 1,
-						       0.5, 0.3, 0.2,
-						       3, layers,
-						       23.0, 0.1);
-				break;
-			case 1:
-				bw_process_no_cache_8 (width, height,
-						       output, 3, out_height * 3,
-						       orig, 3, width * 3,
-						       out_width, cols, out_height, rows, 0,
-						       0.5, 0.3, 0.2,
-						       3, layers,
-						       23.0, 0.1);
-				break;
-			case 2:
-				bw_process_no_cache_8 (width, height,
-						       output, 3, out_width * 3,
-						       orig, 3, width * 3,
-						       out_width, cols, out_height, rows, 1,
-						       0.5, 0.3, 0.2,
-						       3, layers,
-						       23.0, 0.1);
-				break;
-			case 3:
-				bw_process_no_cache_8 (width, height,
-						       output, 3, out_height * 3,
-						       orig, 3, width * 3,
-						       out_width, cols, out_height, rows, 0,
-						       0.5, 0.3, 0.2,
-						       3, layers,
-						       23.0, 0.1);
-				break;
-			default:
-				assert (0);
-		}
+		bw_process_no_cache_8 (width, height,
+				       output, 3, out_rotated_width * 3,
+				       orig, 3, width * 3,
+				       out_width, cols, out_height, rows, row_major,
+				       0.5, 0.3, 0.2,
+				       3, layers,
+				       23.0, 0.1);
 	}
 
 	printf("processed\n");
 
-	if (rotation % 2 == 0)
-		write_image ("/tmp/beidel2.png", out_width, out_height, output, 3, out_width * 3, IMAGE_FORMAT_PNG);
-	else
-		write_image ("/tmp/beidel2.png", out_height, out_width, output, 3, out_height * 3, IMAGE_FORMAT_PNG);
+	write_image ("/tmp/beidel2.png", out_rotated_width, out_rotated_height, output, 3, out_rotated_width * 3, IMAGE_FORMAT_PNG);
 
 	return 0;
 }

@@ -11,6 +11,20 @@ typedef struct
 
 sample_t* make_logistic_contrast_curve (float v);
 
+enum {
+	BW_ROTATION_0,
+	BW_ROTATION_90,
+	BW_ROTATION_180,
+	BW_ROTATION_270
+};
+
+void bw_make_rows_cols (int in_width, int in_height,
+			int out_width, int out_height,
+			int rotation,
+			int **rows, int **cols,
+			int *out_rotated_width, int *out_rotated_height,
+			int *row_major);
+
 void bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 		 int num_cols, int *cols, int num_rows, int *rows,
 		 unsigned char *cache_mask, sample_t *cache,
