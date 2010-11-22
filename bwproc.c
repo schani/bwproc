@@ -325,7 +325,7 @@ query_pixel_layers (int width, int height, sample_t *out_pixel, sample_t *in_dat
 		     mixed, layered);
 }
 
-#if 1
+#ifdef BW_COMMANDLINE
 #include "rwimg/readimage.h"
 #include "rwimg/writeimage.h"
 

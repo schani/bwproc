@@ -6,7 +6,7 @@ export CFLAGS FORMATDEFS
 all : libbwproc.so
 
 bwproc : librwimg bwproc.c procfunc.h
-	$(CC) $(CFLAGS) $(FORMATDEFS) -o bwproc bwproc.c rwimg/librwimg.a -lpng -ljpeg -lungif
+	$(CC) $(CFLAGS) $(FORMATDEFS) -DBW_COMMANDLINE -o bwproc bwproc.c rwimg/librwimg.a -lpng -ljpeg -lungif
 
 librwimg :
 	$(MAKE) -C rwimg
