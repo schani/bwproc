@@ -35,7 +35,7 @@ void bw_process_layers_8 (int width, int height, uint8_t *out_data, sample_t *in
 void bw_process_no_cache_8 (int width, int height,
 			    uint8_t *out_data, int out_pixel_stride, int out_row_stride,
 			    uint8_t *in_data, int in_pixel_stride, int in_row_stride,
-			    int num_cols, int *cols, int num_rows, int *rows,
+			    int num_cols, int *cols, int num_rows, int *rows, int row_major,
 			    float red, float green, float blue,
 			    int num_contrast_layers, contrast_layer_t *contrast_layers,
 			    float tint_hue, float tint_amount);

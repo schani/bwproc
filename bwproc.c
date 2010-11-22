@@ -7,11 +7,6 @@
 
 #include "bwproc.h"
 
-/*
-#include "rwimg/readimage.h"
-#include "rwimg/writeimage.h"
-*/
-
 #define SAMPLE_MAX       65535
 
 #define RGB_MULT         2048
@@ -92,6 +87,7 @@ bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
 
 	out = out_data;
+
 	for (row = 0; row < num_rows; ++row) {
 		for (col = 0; col < num_cols; ++col) {
 			int pixel = rows [row] * width + cols [col];
@@ -124,7 +120,7 @@ void
 bw_process_no_cache_8 (int width, int height,
 		       uint8_t *out_data, int out_pixel_stride, int out_row_stride,
 		       uint8_t *in_data, int in_pixel_stride, int in_row_stride,
-		       int num_cols, int *cols, int num_rows, int *rows,
+		       int num_cols, int *cols, int num_rows, int *rows, int row_major,
 		       float red, float green, float blue,
 		       int num_contrast_layers, contrast_layer_t *contrast_layers,
 		       float tint_hue, float tint_amount)
@@ -145,32 +141,64 @@ bw_process_no_cache_8 (int width, int height,
 	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
 	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
 
-	out_row = out_data;
-	for (row = 0; row < num_rows; ++row) {
-		uint8_t *out = out_row;
-		uint8_t *in_row = in_data + rows [row] * in_row_stride;
+	if (row_major) {
+		out_row = out_data;
+		for (row = 0; row < num_rows; ++row) {
+			uint8_t *out = out_row;
+			uint8_t *in_row = in_data + rows [row] * in_row_stride;
 
-		for (col = 0; col < num_cols; ++col) {
-			int pixel = rows [row] * width + cols [col];
-			uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
-			sample_t in [3];
+			for (col = 0; col < num_cols; ++col) {
+				int pixel = rows [row] * width + cols [col];
+				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
+				sample_t in [3];
 
-			in [0] = (sample_t)in_8 [0] << 8;
-			in [1] = (sample_t)in_8 [1] << 8;
-			in [2] = (sample_t)in_8 [2] << 8;
+				in [0] = (sample_t)in_8 [0] << 8;
+				in [1] = (sample_t)in_8 [1] << 8;
+				in [2] = (sample_t)in_8 [2] << 8;
 
 #define PIXEL_OUT out_pixel
 #include "procfunc.h"
 #undef PIXEL_OUT
 
-			out [0] = out_pixel [0] >> 8;
-			out [1] = out_pixel [1] >> 8;
-			out [2] = out_pixel [2] >> 8;
+				out [0] = out_pixel [0] >> 8;
+				out [1] = out_pixel [1] >> 8;
+				out [2] = out_pixel [2] >> 8;
 
-			out += out_pixel_stride;
+				out += out_pixel_stride;
+			}
+
+			out_row += out_row_stride;
 		}
+	} else {
+		for (row = 0; row < num_rows; ++row) {
+			uint8_t *in_row = in_data + rows [row] * in_row_stride;
+			uint8_t *out;
 
-		out_row += out_row_stride;
+			out_row = out_data + row * out_pixel_stride;
+			out = out_row;
+
+			for (col = 0; col < num_cols; ++col) {
+				int pixel = rows [row] * width + cols [col];
+				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
+				sample_t in [3];
+
+				in [0] = (sample_t)in_8 [0] << 8;
+				in [1] = (sample_t)in_8 [1] << 8;
+				in [2] = (sample_t)in_8 [2] << 8;
+
+#define PIXEL_OUT out_pixel
+#include "procfunc.h"
+#undef PIXEL_OUT
+
+				out [0] = out_pixel [0] >> 8;
+				out [1] = out_pixel [1] >> 8;
+				out [2] = out_pixel [2] >> 8;
+
+				out += out_row_stride;
+			}
+
+			out_row += out_row_stride;
+		}
 	}
 }
 
@@ -297,7 +325,10 @@ query_pixel_layers (int width, int height, sample_t *out_pixel, sample_t *in_dat
 		     mixed, layered);
 }
 
-/*
+#if 1
+#include "rwimg/readimage.h"
+#include "rwimg/writeimage.h"
+
 int
 main (int argc, char *argv[])
 {
@@ -305,50 +336,45 @@ main (int argc, char *argv[])
 	unsigned char *output;
 	int width, height;
 	int out_width, out_height;
-	sample_t *data, *out_data;
 	sample_t contrast_curve [CURVE_NUM];
 	sample_t brighten_curve [CURVE_NUM];
 	sample_t darken_curve [CURVE_NUM];
-	unsigned char *cache_mask;
-	sample_t *cache;
 	int *rows, *cols;
 	contrast_layer_t layers[3];
 	int i;
 	int x, y;
+	int rotation = 0;
 
-	assert (argc == 2);
+	assert (argc == 2 || argc == 3);
 
 	orig = read_image (argv[1], &width, &height);
 	assert (orig != NULL);
 
 	printf("loaded\n");
 
-	data = (sample_t*)malloc (sizeof (sample_t) * width * height * 3);
-	assert (data != NULL);
-
-	for (i = 0; i < width * height * 3; ++i)
-		data[i] = (sample_t)orig[i] << 8;
-
-	printf("converted\n");
-
-	cache_mask = (unsigned char*)malloc (width * height);
-	memset (cache_mask, 0, width * height);
-
-	cache = (sample_t*)malloc (sizeof (sample_t) * width * height * 3);
+	if (argc == 3) {
+		rotation = atoi (argv [2]);
+		assert (rotation >= 0 && rotation < 4);
+	}
 
 	out_width = width;
 	out_height = height;
 
 	rows = (int*)malloc (sizeof (int) * out_height);
-	for (i = 0; i < out_height; ++i)
-		rows [i] = i * height / out_height;
+	for (i = 0; i < out_height; ++i) {
+		if (rotation == 1 || rotation == 2)
+			rows [i] = height - 1 - i * height / out_height;
+		else
+			rows [i] = i * height / out_height;
+	}
 
 	cols = (int*)malloc (sizeof (int) * out_width);
-	for (i = 0; i < out_width; ++i)
-		cols [i] = i * width / out_width;
-
-	out_data = (sample_t*)malloc (sizeof (sample_t) * out_width * out_height * 3);
-	assert (out_data != NULL);
+	for (i = 0; i < out_width; ++i) {
+		if (rotation == 2 || rotation == 3)
+			cols [i] = width - 1 - i * width / out_width;
+		else
+			cols [i] = i * width / out_width;
+	}
 
 	for (i = 0; i < CURVE_NUM; ++i) {
 		contrast_curve [i] = (sample_t)i << CURVE_SHIFT;
@@ -380,24 +406,59 @@ main (int argc, char *argv[])
 			}
 		}
 
-	for (i = 0; i < 100; ++i)
-		bw_process (width, height, out_data, data,
-			    out_width, cols, out_height, rows,
-			    cache_mask, cache,
-			    0.5, 0.3, 0.2,
-			    3, layers,
-			    23.0, 0.1);
+	output = (unsigned char*)malloc (out_width * out_height * 3);
+	assert (output != NULL);
+
+	for (i = 0; i < 100; ++i) {
+		switch (rotation) {
+			case 0:
+				bw_process_no_cache_8 (width, height,
+						       output, 3, out_width * 3,
+						       orig, 3, width * 3,
+						       out_width, cols, out_height, rows, 1,
+						       0.5, 0.3, 0.2,
+						       3, layers,
+						       23.0, 0.1);
+				break;
+			case 1:
+				bw_process_no_cache_8 (width, height,
+						       output, 3, out_height * 3,
+						       orig, 3, width * 3,
+						       out_width, cols, out_height, rows, 0,
+						       0.5, 0.3, 0.2,
+						       3, layers,
+						       23.0, 0.1);
+				break;
+			case 2:
+				bw_process_no_cache_8 (width, height,
+						       output, 3, out_width * 3,
+						       orig, 3, width * 3,
+						       out_width, cols, out_height, rows, 1,
+						       0.5, 0.3, 0.2,
+						       3, layers,
+						       23.0, 0.1);
+				break;
+			case 3:
+				bw_process_no_cache_8 (width, height,
+						       output, 3, out_height * 3,
+						       orig, 3, width * 3,
+						       out_width, cols, out_height, rows, 0,
+						       0.5, 0.3, 0.2,
+						       3, layers,
+						       23.0, 0.1);
+				break;
+			default:
+				assert (0);
+		}
+	}
 
 	printf("processed\n");
 
-	output = (unsigned char*)malloc (out_width * out_height * 3);
-	for (i = 0; i < out_width * out_height * 3; ++i)
-		output [i] = out_data [i] >> 8;
-
-	printf("converted\n");
-
-	write_image ("/tmp/beidel2.png", out_width, out_height, output, 3, out_width * 3, IMAGE_FORMAT_PNG);
+	if (rotation % 2 == 0)
+		write_image ("/tmp/beidel2.png", out_width, out_height, output, 3, out_width * 3, IMAGE_FORMAT_PNG);
+	else
+		write_image ("/tmp/beidel2.png", out_height, out_width, output, 3, out_height * 3, IMAGE_FORMAT_PNG);
 
 	return 0;
 }
-*/
+#endif
