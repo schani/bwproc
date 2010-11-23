@@ -10,6 +10,7 @@ typedef struct
 } contrast_layer_t;
 
 sample_t* make_logistic_contrast_curve (float v);
+sample_t* bw_make_inverted_contrast_curve (void);
 
 enum {
 	BW_ROTATION_0,
