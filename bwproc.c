@@ -62,6 +62,18 @@ bw_make_inverted_contrast_curve (void)
 }
 
 sample_t*
+bw_make_gamma_contrast_curve (float gamma)
+{
+	sample_t *curve = alloc_curve ();
+	int i;
+
+	for (i = 0; i < CURVE_NUM; ++i)
+		curve [i] = FLOAT_TO_SAMPLE (powf ((float)i / (float)(CURVE_NUM - 1), gamma));
+
+	return curve;
+}
+
+sample_t*
 bw_make_sinusoidal_vignetting_curve (float z)
 {
 	sample_t *curve = alloc_curve ();
