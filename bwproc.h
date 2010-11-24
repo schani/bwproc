@@ -12,6 +12,8 @@ typedef struct
 sample_t* make_logistic_contrast_curve (float v);
 sample_t* bw_make_inverted_contrast_curve (void);
 
+sample_t* bw_make_sinusoidal_vignetting_curve (float z);
+
 enum {
 	BW_ROTATION_0,
 	BW_ROTATION_90,
@@ -53,7 +55,8 @@ void bw_process_no_cache_8 (int width, int height,
 			    int num_cols, int *cols, int num_rows, int *rows, int row_major,
 			    float red, float green, float blue,
 			    int num_contrast_layers, contrast_layer_t *contrast_layers,
-			    float tint_hue, float tint_amount);
+			    float tint_hue, float tint_amount,
+			    sample_t *vignetting_curve);
 
 void query_pixel (int width, int height, sample_t *out_pixel, sample_t *in_data,
 		  int x, int y,

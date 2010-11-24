@@ -61,6 +61,23 @@ bw_make_inverted_contrast_curve (void)
 	return curve;
 }
 
+sample_t*
+bw_make_sinusoidal_vignetting_curve (float z)
+{
+	sample_t *curve = alloc_curve ();
+	int i;
+
+	for (i = 0; i < CURVE_NUM; ++i) {
+		float x = sqrt ((float)i / (float)(CURVE_NUM - 1));
+		if (x >= z)
+			curve [i] = FLOAT_TO_SAMPLE (0.0f);
+		else
+			curve [i] = FLOAT_TO_SAMPLE (cos (x * (M_PI / 2.0) / z));
+	}
+
+	return curve;
+}
+
 void
 bw_make_rows_cols (int in_width, int in_height,
 		   int out_width, int out_height,
@@ -120,6 +137,23 @@ prepare_tint (float tint_hue, float tint_amount, int *i, sample_t *f, sample_t *
 	*f = FLOAT_TO_SAMPLE (tint_hue - *i);
 }
 
+static sample_t*
+prepare_vignetting_squares (int num_pixels)
+{
+	float middle = num_pixels / 2.0;
+	sample_t *squares = malloc (sizeof (int) * num_pixels);
+	int i;
+
+	assert (squares);
+
+	for (i = 0; i < num_pixels; ++i) {
+		float x = fabs (i - middle) / middle;
+		squares [i] = FLOAT_TO_SAMPLE (x * x / 2.0);
+	}
+
+	return squares;
+}
+
 void
 bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 	    int num_cols, int *cols, int num_rows, int *rows,
@@ -134,6 +168,7 @@ bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 	sample_t saturation;
 	int row, col;
 	sample_t *out;
+	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
 
 	for (i = 0; i < num_cols; ++i)
 		assert (cols [i] >= 0 && cols [i] < width);
@@ -180,7 +215,8 @@ bw_process_no_cache_8 (int width, int height,
 		       int num_cols, int *cols, int num_rows, int *rows, int row_major,
 		       float red, float green, float blue,
 		       int num_contrast_layers, contrast_layer_t *contrast_layers,
-		       float tint_hue, float tint_amount)
+		       float tint_hue, float tint_amount,
+		       sample_t *vignetting_curve)
 {
 	int32_t red_factor, green_factor, blue_factor;
 	int i;
@@ -188,6 +224,8 @@ bw_process_no_cache_8 (int width, int height,
 	sample_t saturation;
 	int row, col;
 	uint8_t *out_row;
+	sample_t *vsquares_x = NULL;
+	sample_t *vsquares_y = NULL;
 	sample_t out_pixel [3];
 
 	for (i = 0; i < num_cols; ++i)
@@ -198,16 +236,34 @@ bw_process_no_cache_8 (int width, int height,
 	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
 	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
 
+	if (vignetting_curve) {
+		vsquares_x = prepare_vignetting_squares (num_cols);
+		vsquares_y = prepare_vignetting_squares (num_rows);
+	}
+
 	if (row_major) {
 		out_row = out_data;
 		for (row = 0; row < num_rows; ++row) {
 			uint8_t *out = out_row;
 			uint8_t *in_row = in_data + rows [row] * in_row_stride;
+			sample_t row_square = 0;
+
+			if (vignetting_curve)
+				row_square = vsquares_y [row];
 
 			for (col = 0; col < num_cols; ++col) {
 				int pixel = rows [row] * width + cols [col];
 				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
 				sample_t in [3];
+				sample_t vignetting;
+
+				if (vignetting_curve) {
+					sample_t col_square = vsquares_x [col];
+					sample_t square = row_square + col_square;
+					vignetting = vignetting_curve [square >> CURVE_SHIFT];
+				} else {
+					vignetting = FLOAT_TO_SAMPLE (1.0f);
+				}
 
 				in [0] = (sample_t)in_8 [0] << 8;
 				in [1] = (sample_t)in_8 [1] << 8;
@@ -230,6 +286,10 @@ bw_process_no_cache_8 (int width, int height,
 		for (row = 0; row < num_rows; ++row) {
 			uint8_t *in_row = in_data + rows [row] * in_row_stride;
 			uint8_t *out;
+			sample_t row_square = 0;
+
+			if (vignetting_curve)
+				row_square = vsquares_y [row];
 
 			out_row = out_data + row * out_pixel_stride;
 			out = out_row;
@@ -238,6 +298,15 @@ bw_process_no_cache_8 (int width, int height,
 				int pixel = rows [row] * width + cols [col];
 				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
 				sample_t in [3];
+				sample_t vignetting;
+
+				if (vignetting_curve) {
+					sample_t col_square = vsquares_x [col];
+					sample_t square = row_square + col_square;
+					vignetting = vignetting_curve [square >> CURVE_SHIFT];
+				} else {
+					vignetting = FLOAT_TO_SAMPLE (1.0f);
+				}
 
 				in [0] = (sample_t)in_8 [0] << 8;
 				in [1] = (sample_t)in_8 [1] << 8;
@@ -256,6 +325,11 @@ bw_process_no_cache_8 (int width, int height,
 
 			out_row += out_row_stride;
 		}
+	}
+
+	if (vignetting_curve) {
+		free (vsquares_x);
+		free (vsquares_y);
 	}
 }
 
@@ -345,6 +419,7 @@ query_pixel (int width, int height, sample_t *out_pixel, sample_t *in_data,
 	int pixel = y * width + x;
 	sample_t *in = in_data + pixel * 3;
 	sample_t mixed;
+	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
 
 	assert (x >= 0 && x < width && y >= 0 && y < height);
 
@@ -396,6 +471,7 @@ main (int argc, char *argv[])
 	sample_t contrast_curve [CURVE_NUM];
 	sample_t brighten_curve [CURVE_NUM];
 	sample_t darken_curve [CURVE_NUM];
+	sample_t *vignetting_curve;
 	int *rows, *cols;
 	contrast_layer_t layers[3];
 	int i;
@@ -451,6 +527,8 @@ main (int argc, char *argv[])
 			}
 		}
 
+	vignetting_curve = bw_make_sinusoidal_vignetting_curve (1.2);
+
 	output = (unsigned char*)malloc (out_width * out_height * 3);
 	assert (output != NULL);
 
@@ -461,7 +539,8 @@ main (int argc, char *argv[])
 				       out_width, cols, out_height, rows, row_major,
 				       0.5, 0.3, 0.2,
 				       3, layers,
-				       23.0, 0.1);
+				       23.0, 0.1,
+				       vignetting_curve);
 	}
 
 	printf("processed\n");

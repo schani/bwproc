@@ -17,6 +17,8 @@
 	MIXED = gray;
 #endif
 
+	gray = SAMPLE_MUL (gray, vignetting);
+
 	contrasted = gray;
 	for (layer = 0; layer < num_contrast_layers; ++layer) {
 		sample_t result = contrast_layers [layer].curve [gray >> CURVE_SHIFT];
