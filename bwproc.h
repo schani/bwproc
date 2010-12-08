@@ -13,7 +13,7 @@ sample_t* make_logistic_contrast_curve (float v);
 sample_t* bw_make_inverted_contrast_curve (void);
 sample_t* bw_make_gamma_contrast_curve (float gamma);
 
-sample_t* bw_make_sinusoidal_vignetting_curve (float z);
+sample_t* bw_make_sinusoidal_vignetting_curve (float start, float z);
 
 enum {
 	BW_ROTATION_0,

@@ -74,13 +74,20 @@ bw_make_gamma_contrast_curve (float gamma)
 }
 
 sample_t*
-bw_make_sinusoidal_vignetting_curve (float z)
+bw_make_sinusoidal_vignetting_curve (float start, float z)
 {
 	sample_t *curve = alloc_curve ();
 	int i;
 
-	for (i = 0; i < CURVE_NUM; ++i) {
-		float x = sqrt ((float)i / (float)(CURVE_NUM - 1));
+	assert (start >= 0.0f && start <= 1.0f);
+
+	start = start * start;
+
+	for (i = 0; i < CURVE_NUM * start; ++i)
+		curve [i] = FLOAT_TO_SAMPLE (1.0f);
+
+	for (; i < CURVE_NUM; ++i) {
+		float x = sqrt (((float)i / (float)(CURVE_NUM - 1) - start) / (1.0f - start));
 		if (x >= z)
 			curve [i] = FLOAT_TO_SAMPLE (0.0f);
 		else
@@ -539,7 +546,7 @@ main (int argc, char *argv[])
 			}
 		}
 
-	vignetting_curve = bw_make_sinusoidal_vignetting_curve (1.2);
+	vignetting_curve = bw_make_sinusoidal_vignetting_curve (0.3, 1.0);
 
 	output = (unsigned char*)malloc (out_width * out_height * 3);
 	assert (output != NULL);
