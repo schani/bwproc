@@ -1,7 +1,7 @@
 {
 	int32_t sgray;
 	sample_t gray;
-	sample_t contrasted, inverted;
+	sample_t contrasted, grained, inverted;
 	sample_t s, v, p, q, t;
 	sample_t r, g, b;
 	int layer;
@@ -34,8 +34,22 @@
 	}
 
 	contrasted = SAMPLE_MUL (contrasted, vignetting);
-	
-	inverted = SAMPLE_MAX - contrasted;
+
+	if (grain < SAMPLE_MAX / 2) {
+		sample_t diff = SAMPLE_MAX / 2 - grain;
+		if (contrasted < diff)
+			grained = 0;
+		else
+			grained = contrasted - diff;
+	} else {
+		sample_t diff = grain - SAMPLE_MAX / 2;
+		if (contrasted > SAMPLE_MAX - diff)
+			grained = SAMPLE_MAX;
+		else
+			grained = contrasted + diff;
+	}
+
+	inverted = SAMPLE_MAX - grained;
 
 	if (inverted < SAMPLE_MAX / 2) {
 		s = inverted * 2;

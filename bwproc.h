@@ -15,6 +15,8 @@ sample_t* bw_make_gamma_contrast_curve (float gamma);
 
 sample_t* bw_make_sinusoidal_vignetting_curve (float start, float z, float exponent);
 
+sample_t* bw_make_uniform_grain_buffer (float max);
+
 enum {
 	BW_ROTATION_0,
 	BW_ROTATION_90,
@@ -57,7 +59,8 @@ void bw_process_no_cache_8 (int width, int height,
 			    float red, float green, float blue,
 			    int num_contrast_layers, contrast_layer_t *contrast_layers,
 			    float tint_hue, float tint_amount,
-			    sample_t *vignetting_curve);
+			    sample_t *vignetting_curve,
+			    sample_t *grain_buffer);
 
 void query_pixel (int width, int height, sample_t *out_pixel, sample_t *in_data,
 		  int x, int y,

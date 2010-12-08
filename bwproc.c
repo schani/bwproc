@@ -15,6 +15,9 @@
 #define CURVE_NUM     2048
 #define CURVE_SHIFT   5
 
+#define GRAIN_BUFFER_SIZE		29947
+#define GRAIN_BUFFER_INCREMENT_MAX	32
+
 #define FLOAT_TO_SAMPLE(f)      ((sample_t)((f) * SAMPLE_MAX))
 #define SAMPLE_MUL(a,b)		((sample_t)(((uint32_t)(a) * (uint32_t)(b)) >> 16))
 
@@ -95,6 +98,23 @@ bw_make_sinusoidal_vignetting_curve (float start, float z, float exponent)
 	}
 
 	return curve;
+}
+
+sample_t*
+bw_make_uniform_grain_buffer (float max)
+{
+	int i;
+	sample_t *buffer;
+
+	assert (max >= 0 && max <= 0.5);
+
+	buffer = malloc (sizeof (sample_t) * GRAIN_BUFFER_SIZE);
+	assert (buffer);
+
+	for (i = 0; i < GRAIN_BUFFER_SIZE; ++i)
+		buffer [i] = FLOAT_TO_SAMPLE ((float) random () / RAND_MAX * max * 2.0f + (0.5f - max));
+
+	return buffer;
 }
 
 void
@@ -188,6 +208,7 @@ bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
 	int row, col;
 	sample_t *out;
 	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
+	sample_t grain = FLOAT_TO_SAMPLE (0.5f);
 
 	for (i = 0; i < num_cols; ++i)
 		assert (cols [i] >= 0 && cols [i] < width);
@@ -235,7 +256,8 @@ bw_process_no_cache_8 (int width, int height,
 		       float red, float green, float blue,
 		       int num_contrast_layers, contrast_layer_t *contrast_layers,
 		       float tint_hue, float tint_amount,
-		       sample_t *vignetting_curve)
+		       sample_t *vignetting_curve,
+		       sample_t *grain_buffer)
 {
 	int32_t red_factor, green_factor, blue_factor;
 	int i;
@@ -246,6 +268,7 @@ bw_process_no_cache_8 (int width, int height,
 	sample_t *vsquares_x = NULL;
 	sample_t *vsquares_y = NULL;
 	sample_t out_pixel [3];
+	int grain_buffer_index = 0;
 
 	for (i = 0; i < num_cols; ++i)
 		assert (cols [i] >= 0 && cols [i] < width);
@@ -266,6 +289,7 @@ bw_process_no_cache_8 (int width, int height,
 			uint8_t *out = out_row;
 			uint8_t *in_row = in_data + rows [row] * in_row_stride;
 			sample_t row_square = 0;
+			int grain_buffer_increment = random () % GRAIN_BUFFER_INCREMENT_MAX + 1;
 
 			if (vignetting_curve)
 				row_square = vsquares_y [row];
@@ -274,7 +298,7 @@ bw_process_no_cache_8 (int width, int height,
 				int pixel = rows [row] * width + cols [col];
 				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
 				sample_t in [3];
-				sample_t vignetting;
+				sample_t vignetting, grain;
 
 				if (vignetting_curve) {
 					sample_t col_square = vsquares_x [col];
@@ -282,6 +306,16 @@ bw_process_no_cache_8 (int width, int height,
 					vignetting = vignetting_curve [square >> CURVE_SHIFT];
 				} else {
 					vignetting = FLOAT_TO_SAMPLE (1.0f);
+				}
+
+				if (grain_buffer) {
+					grain = grain_buffer [grain_buffer_index];
+
+					grain_buffer_index += grain_buffer_increment;
+					if (grain_buffer_index >= GRAIN_BUFFER_SIZE)
+						grain_buffer_index -= GRAIN_BUFFER_SIZE;
+				} else {
+					grain = SAMPLE_MAX / 2;
 				}
 
 				in [0] = (sample_t)in_8 [0] << 8;
@@ -306,6 +340,7 @@ bw_process_no_cache_8 (int width, int height,
 			uint8_t *in_row = in_data + rows [row] * in_row_stride;
 			uint8_t *out;
 			sample_t row_square = 0;
+			int grain_buffer_increment = random () % GRAIN_BUFFER_INCREMENT_MAX + 1;
 
 			if (vignetting_curve)
 				row_square = vsquares_y [row];
@@ -317,7 +352,7 @@ bw_process_no_cache_8 (int width, int height,
 				int pixel = rows [row] * width + cols [col];
 				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
 				sample_t in [3];
-				sample_t vignetting;
+				sample_t vignetting, grain;
 
 				if (vignetting_curve) {
 					sample_t col_square = vsquares_x [col];
@@ -325,6 +360,16 @@ bw_process_no_cache_8 (int width, int height,
 					vignetting = vignetting_curve [square >> CURVE_SHIFT];
 				} else {
 					vignetting = FLOAT_TO_SAMPLE (1.0f);
+				}
+
+				if (grain_buffer) {
+					grain = grain_buffer [grain_buffer_index];
+
+					grain_buffer_index += grain_buffer_increment;
+					if (grain_buffer_index >= GRAIN_BUFFER_SIZE)
+						grain_buffer_index -= GRAIN_BUFFER_SIZE;
+				} else {
+					grain = SAMPLE_MAX / 2;
 				}
 
 				in [0] = (sample_t)in_8 [0] << 8;
@@ -439,6 +484,7 @@ query_pixel (int width, int height, sample_t *out_pixel, sample_t *in_data,
 	sample_t *in = in_data + pixel * 3;
 	sample_t mixed;
 	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
+	sample_t grain = SAMPLE_MAX / 2;
 
 	assert (x >= 0 && x < width && y >= 0 && y < height);
 
@@ -490,7 +536,7 @@ main (int argc, char *argv[])
 	sample_t contrast_curve [CURVE_NUM];
 	sample_t brighten_curve [CURVE_NUM];
 	sample_t darken_curve [CURVE_NUM];
-	sample_t *vignetting_curve;
+	sample_t *vignetting_curve, *grain_buffer;
 	int *rows, *cols;
 	contrast_layer_t layers[3];
 	int i;
@@ -548,6 +594,8 @@ main (int argc, char *argv[])
 
 	vignetting_curve = bw_make_sinusoidal_vignetting_curve (0.3, 1.0, 0.5);
 
+	grain_buffer = bw_make_uniform_grain_buffer (0.2);
+
 	output = (unsigned char*)malloc (out_width * out_height * 3);
 	assert (output != NULL);
 
@@ -559,7 +607,8 @@ main (int argc, char *argv[])
 				       0.5, 0.3, 0.2,
 				       3, layers,
 				       23.0, 0.1,
-				       vignetting_curve);
+				       vignetting_curve,
+				       grain_buffer);
 	}
 
 	printf("processed\n");
