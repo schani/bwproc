@@ -142,7 +142,7 @@ rand_gauss_unit (void)
 static float
 rand_gauss (float variance)
 {
-	return rand_gauss_unit () * variance;
+	return rand_gauss_unit () * sqrtf (variance);
 }
 
 sample_t*
