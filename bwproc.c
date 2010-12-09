@@ -100,6 +100,12 @@ bw_make_sinusoidal_vignetting_curve (float start, float z, float exponent)
 	return curve;
 }
 
+static float
+randf (void)
+{
+	return (float) random () / RAND_MAX;
+}
+
 sample_t*
 bw_make_uniform_grain_buffer (float max)
 {
@@ -112,7 +118,52 @@ bw_make_uniform_grain_buffer (float max)
 	assert (buffer);
 
 	for (i = 0; i < GRAIN_BUFFER_SIZE; ++i)
-		buffer [i] = FLOAT_TO_SAMPLE ((float) random () / RAND_MAX * max * 2.0f + (0.5f - max));
+		buffer [i] = FLOAT_TO_SAMPLE (randf () * max * 2.0f + (0.5f - max));
+
+	return buffer;
+}
+
+static float
+rand_gauss_unit (void)
+{
+	float x1, x2, w;
+
+	do {
+		x1 = randf () * 2.0f - 1.0f;
+		x2 = randf () * 2.0f - 1.0f;
+		w = x1 * x1 + x2 * x2;
+	} while (w >= 1.0f);
+
+	w = sqrtf ((logf (w) * -2.0f) / w);
+
+	return x1 * w;
+}
+
+static float
+rand_gauss (float variance)
+{
+	return rand_gauss_unit () * variance;
+}
+
+sample_t*
+bw_make_gaussian_grain_buffer (float variance)
+{
+	int i;
+	sample_t *buffer;
+
+	buffer = malloc (sizeof (sample_t) * GRAIN_BUFFER_SIZE);
+	assert (buffer);
+
+	for (i = 0; i < GRAIN_BUFFER_SIZE; ++i) {
+		float x = rand_gauss (variance);
+
+		if (x < -1)
+			x = -1;
+		else if (x > 1)
+			x = 1;
+
+		buffer [i] = FLOAT_TO_SAMPLE (x * 0.5f + 0.5f);
+	}
 
 	return buffer;
 }

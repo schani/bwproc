@@ -16,6 +16,7 @@ sample_t* bw_make_gamma_contrast_curve (float gamma);
 sample_t* bw_make_sinusoidal_vignetting_curve (float start, float z, float exponent);
 
 sample_t* bw_make_uniform_grain_buffer (float max);
+sample_t* bw_make_gaussian_grain_buffer (float variance);
 
 enum {
 	BW_ROTATION_0,
