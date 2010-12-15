@@ -35,18 +35,44 @@ logistic (float t)
     return 1.0f / (1.0f + expf (-t));
 }
 
+static float
+logit (float t)
+{
+	return -logf (1.0f / t - 1.0f);
+}
+
 sample_t*
 make_logistic_contrast_curve (float v)
 {
 	sample_t *curve = alloc_curve ();
-	float y_crop = logistic (-v);
-	float crop_factor = 1.0f / (1.0f - 2.0f * y_crop);
-	int i;
 
-	for (i = 0; i < CURVE_NUM; ++i) {
-		float t = (float)i / (float)(CURVE_NUM - 1) * v * 2.0f - v;
-		float val = (logistic (t) - y_crop) * crop_factor;
-		curve [i] = FLOAT_TO_SAMPLE (val);
+	if (abs (v) < 0.0001) {
+		// linear
+		int i;
+
+		for (i = 0; i < CURVE_NUM; ++i)
+			curve [i] = FLOAT_TO_SAMPLE ((float)i / (float)(CURVE_NUM - 1));
+	} else if (v > 0) {
+		// logistic
+		float y_crop = logistic (-v);
+		float crop_factor = 1.0f / (1.0f - 2.0f * y_crop);
+		int i;
+
+		for (i = 0; i < CURVE_NUM; ++i) {
+			float t = (float)i / (float)(CURVE_NUM - 1) * v * 2.0f - v;
+			float val = (logistic (t) - y_crop) * crop_factor;
+			curve [i] = FLOAT_TO_SAMPLE (val);
+		}
+	} else {
+		// logit
+		float x_crop = logistic (v);
+		int i;
+
+		for (i = 0; i < CURVE_NUM; ++i) {
+			float t = (float)i / (float)(CURVE_NUM - 1) * (1 - 2 * x_crop) + x_crop;
+			float val = logit (t) / -v / 2 + 0.5f;
+			curve [i] = FLOAT_TO_SAMPLE (val);
+		}
 	}
 
 	return curve;
