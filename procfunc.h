@@ -1,9 +1,7 @@
 {
 	int32_t sgray;
 	sample_t gray;
-	sample_t contrasted, grained, inverted;
-	sample_t s, v, p, q, t;
-	sample_t r, g, b;
+	sample_t contrasted, grained;
 	int layer;
 
 	sgray = (int32_t)in [0] * red_factor + (int32_t)in [1] * green_factor + (int32_t)in [2] * blue_factor;
@@ -49,36 +47,9 @@
 			grained = contrasted + diff;
 	}
 
-	inverted = SAMPLE_MAX - grained;
+	grained >>= CURVE_SHIFT;
 
-	if (inverted < SAMPLE_MAX / 2) {
-		s = inverted * 2;
-		v = SAMPLE_MAX;
-	} else {
-		s = SAMPLE_MAX;
-		if (inverted == SAMPLE_MAX)
-			v = 0;
-		else
-			v = SAMPLE_MAX - ((int)inverted - SAMPLE_MAX / 2) * 2;
-	}
-
-	p = SAMPLE_MUL (v, (SAMPLE_MAX - s));
-	q = SAMPLE_MUL (v, (SAMPLE_MAX - (SAMPLE_MUL (s, f))));
-	t = SAMPLE_MUL (v, (SAMPLE_MAX - (SAMPLE_MUL (s, (SAMPLE_MAX - f)))));
-
-	switch (i) {
-		case 0 : r = v; g = t; b = p; break;
-		case 1 : r = q; g = v; b = p; break;
-		case 2 : r = p; g = v; b = t; break;
-		case 3 : r = p; g = q; b = v; break;
-		case 4 : r = t; g = p; b = v; break;
-		case 5 : r = v; g = p; b = q; break;
-
-		default :
-			assert(0);
-	}
-
-	PIXEL_OUT [0] = SAMPLE_MUL (r, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
-	PIXEL_OUT [1] = SAMPLE_MUL (g, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
-	PIXEL_OUT [2] = SAMPLE_MUL (b, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
+	PIXEL_OUT [0] = tint_curve [grained * 3 + 0];
+	PIXEL_OUT [1] = tint_curve [grained * 3 + 1];
+	PIXEL_OUT [2] = tint_curve [grained * 3 + 2];
 }

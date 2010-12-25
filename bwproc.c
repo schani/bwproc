@@ -215,6 +215,63 @@ prepare_tint (float tint_hue, float tint_amount, int *i, sample_t *f, sample_t *
 }
 
 static sample_t*
+prepare_tint_curve (float tint_hue, float tint_amount)
+{
+	int i;
+	int index;
+	sample_t f, saturation;
+	sample_t *curve;
+
+	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
+
+	curve = malloc (sizeof (sample_t) * 3 * CURVE_NUM);
+	assert (curve != NULL);
+
+	for (index = 0; index < CURVE_NUM; ++index) {
+		sample_t inverted;
+		sample_t s, v, p, q, t;
+		sample_t r, g, b;
+		sample_t grained = index << CURVE_SHIFT;
+		assert (grained <= SAMPLE_MAX);
+
+		inverted = SAMPLE_MAX - grained;
+
+		if (inverted < SAMPLE_MAX / 2) {
+			s = inverted * 2;
+			v = SAMPLE_MAX;
+		} else {
+			s = SAMPLE_MAX;
+			if (inverted == SAMPLE_MAX)
+				v = 0;
+			else
+				v = SAMPLE_MAX - ((int)inverted - SAMPLE_MAX / 2) * 2;
+		}
+
+		p = SAMPLE_MUL (v, (SAMPLE_MAX - s));
+		q = SAMPLE_MUL (v, (SAMPLE_MAX - (SAMPLE_MUL (s, f))));
+		t = SAMPLE_MUL (v, (SAMPLE_MAX - (SAMPLE_MUL (s, (SAMPLE_MAX - f)))));
+
+		switch (i) {
+			case 0 : r = v; g = t; b = p; break;
+			case 1 : r = q; g = v; b = p; break;
+			case 2 : r = p; g = v; b = t; break;
+			case 3 : r = p; g = q; b = v; break;
+			case 4 : r = t; g = p; b = v; break;
+			case 5 : r = v; g = p; b = q; break;
+
+			default :
+				assert(0);
+		}
+
+		curve [index * 3 + 0] = SAMPLE_MUL (r, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
+		curve [index * 3 + 1] = SAMPLE_MUL (g, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
+		curve [index * 3 + 2] = SAMPLE_MUL (b, saturation) + SAMPLE_MUL ((SAMPLE_MAX - inverted), (SAMPLE_MAX - saturation));
+	}
+
+	return curve;
+}
+
+static sample_t*
 prepare_vignetting_squares (int num_pixels)
 {
 	float middle = num_pixels / 2.0;
@@ -232,61 +289,6 @@ prepare_vignetting_squares (int num_pixels)
 }
 
 void
-bw_process (int width, int height, sample_t *out_data, sample_t *in_data,
-	    int num_cols, int *cols, int num_rows, int *rows,
-	    unsigned char *cache_mask, sample_t *cache,
-	    float red, float green, float blue,
-	    int num_contrast_layers, contrast_layer_t *contrast_layers,
-	    float tint_hue, float tint_amount)
-{
-	int32_t red_factor, green_factor, blue_factor;
-	int i;
-	sample_t f;
-	sample_t saturation;
-	int row, col;
-	sample_t *out;
-	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
-	sample_t grain = FLOAT_TO_SAMPLE (0.5f);
-
-	for (i = 0; i < num_cols; ++i)
-		assert (cols [i] >= 0 && cols [i] < width);
-	for (i = 0; i < num_rows; ++i)
-		assert (rows [i] >= 0 && rows [i] < height);
-
-	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
-	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
-
-	out = out_data;
-
-	for (row = 0; row < num_rows; ++row) {
-		for (col = 0; col < num_cols; ++col) {
-			int pixel = rows [row] * width + cols [col];
-			sample_t *cache_in = cache + pixel * 3;
-			sample_t *in;
-
-			if (cache_mask [pixel])
-				goto copy_from_cache;
-
-			cache_mask [pixel] = 1;
-
-			in = in_data + pixel * 3;
-
-#define PIXEL_OUT cache_in
-#include "procfunc.h"
-#undef PIXEL_OUT
-
-		copy_from_cache:
-
-			out [0] = cache_in [0];
-			out [1] = cache_in [1];
-			out [2] = cache_in [2];
-
-			out += 3;
-		}
-	}
-}
-
-void
 bw_process_no_cache_8 (int width, int height,
 		       uint8_t *out_data, int out_pixel_stride, int out_row_stride,
 		       uint8_t *in_data, int in_pixel_stride, int in_row_stride,
@@ -297,9 +299,7 @@ bw_process_no_cache_8 (int width, int height,
 		       sample_t *grain_buffer)
 {
 	int32_t red_factor, green_factor, blue_factor;
-	int i;
-	sample_t f;
-	sample_t saturation;
+	sample_t *tint_curve;
 	int row, col;
 	uint8_t *out_row;
 	sample_t *vsquares_x = NULL;
@@ -308,7 +308,7 @@ bw_process_no_cache_8 (int width, int height,
 	int grain_buffer_index = 0;
 
 	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
-	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
+	tint_curve = prepare_tint_curve (tint_hue, tint_amount);
 
 	if (vignetting_curve) {
 		vsquares_x = prepare_vignetting_squares (width);
@@ -371,131 +371,6 @@ bw_process_no_cache_8 (int width, int height,
 		free (vsquares_x);
 		free (vsquares_y);
 	}
-}
-
-static void
-translate_layers (int num_layers, contrast_layer_t *layers, sample_t **layer_array)
-{
-	int i;
-
-	for (i = 0; i < num_layers; ++i) {
-		layers [i].curve = layer_array [i * 2 + 0];
-		layers [i].mask = layer_array [i * 2 + 1];
-	}
-}
-
-void
-bw_process_layers (int width, int height, sample_t *out_data, sample_t *in_data,
-		   int num_cols, int *cols, int num_rows, int *rows,
-		   unsigned char *cache_mask, sample_t *cache,
-		   float red, float green, float blue,
-		   int num_layers, sample_t **layer_array,
-		   float tint_hue, float tint_amount)
-{
-	contrast_layer_t layers[num_layers];
-
-	translate_layers (num_layers, layers, layer_array);
-
-	/*
-	if (num_layers >= 1)
-		printf("curve: %d %d %d\n", layers [0].curve [0], layers [0].curve [1024], layers [0].curve [2047]);
-	*/
-
-	bw_process (width, height, out_data, in_data,
-		    num_cols, cols, num_rows, rows,
-		    cache_mask, cache,
-		    red, green, blue,
-		    num_layers, layers,
-		    tint_hue, tint_amount);
-}
-
-void
-bw_process_layers_8 (int width, int height, uint8_t *out_data, sample_t *in_data,
-		     int num_cols, int *cols, int num_rows, int *rows,
-		     unsigned char *cache_mask, sample_t *cache,
-		     float red, float green, float blue,
-		     int num_layers, sample_t **layer_array,
-		     float tint_hue, float tint_amount)
-{
-	sample_t *out_data_16 = (sample_t*)malloc (sizeof (sample_t) * num_cols * num_rows * 3);
-	int i;
-
-	/*
-	printf("in data 16: %d %d %d\n", in_data [0], in_data [1], in_data [2]);
-	printf("cache mask: %d\n", cache_mask [0]);
-	printf("rgb: %f %f %f\n", red, green, blue);
-	printf("tint: %f %f\n", tint_hue, tint_amount);
-	*/
-
-	bw_process_layers (width, height, out_data_16, in_data,
-			   num_cols, cols, num_rows, rows,
-			   cache_mask, cache,
-			   red, green, blue,
-			   num_layers, layer_array,
-			   tint_hue, tint_amount);
-
-	//printf("out data 16: %d %d %d\n", out_data_16 [0], out_data_16 [1], out_data_16 [2]);
-
-	for (i = 0; i < num_cols * num_rows * 3; ++i)
-		out_data [i] = out_data_16 [i] >> 8;
-
-	//printf("out data 8: %d %d %d\n", out_data [0], out_data [1], out_data [2]);
-
-	free (out_data_16);
-}
-
-void
-query_pixel (int width, int height, sample_t *out_pixel, sample_t *in_data,
-	     int x, int y,
-	     float red, float green, float blue,
-	     int num_contrast_layers, contrast_layer_t *contrast_layers,
-	     float tint_hue, float tint_amount,
-	     sample_t *_mixed, sample_t *layered)
-{
-	int32_t red_factor, green_factor, blue_factor;
-	int i;
-	sample_t f;
-	sample_t saturation;
-	int pixel = y * width + x;
-	sample_t *in = in_data + pixel * 3;
-	sample_t mixed;
-	sample_t vignetting = FLOAT_TO_SAMPLE (1.0f);
-	sample_t grain = SAMPLE_MAX / 2;
-
-	assert (x >= 0 && x < width && y >= 0 && y < height);
-
-	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
-	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
-
-#define PIXEL_OUT out_pixel
-#define MIXED mixed
-#define LAYERED layered
-#include "procfunc.h"
-#undef PIXEL_OUT
-#undef MIXED
-#undef LAYERED
-
-	*_mixed = mixed;
-}
-
-void
-query_pixel_layers (int width, int height, sample_t *out_pixel, sample_t *in_data,
-		    int x, int y,
-		    float red, float green, float blue,
-		    int num_layers, sample_t **layer_array,
-		    float tint_hue, float tint_amount,
-		    sample_t *mixed, sample_t *layered)
-{
-	contrast_layer_t layers [num_layers];
-
-	translate_layers (num_layers, layers, layer_array);
-
-	query_pixel (width, height, out_pixel, in_data,
-		     x, y,
-		     red, green, blue,
-		     num_layers, layers,
-		     tint_hue, tint_amount,
-		     mixed, layered);
 }
 
 #ifdef BW_COMMANDLINE
