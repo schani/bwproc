@@ -194,45 +194,6 @@ bw_make_gaussian_grain_buffer (float variance)
 	return buffer;
 }
 
-void
-bw_make_rows_cols (int in_width, int in_height,
-		   int out_width, int out_height,
-		   int rotation,
-		   int **_rows, int **_cols,
-		   int *out_rotated_width, int *out_rotated_height, int *row_major)
-{
-	int *rows, *cols;
-	int i;
-
-	*_rows = rows = (int*)malloc (sizeof (int) * out_height);
-	assert (rows != NULL);
-	for (i = 0; i < out_height; ++i) {
-		if (rotation == 1 || rotation == 2)
-			rows [i] = in_height - 1 - i * in_height / out_height;
-		else
-			rows [i] = i * in_height / out_height;
-	}
-
-	*_cols = cols = (int*)malloc (sizeof (int) * out_width);
-	assert (cols != NULL);
-	for (i = 0; i < out_width; ++i) {
-		if (rotation == 2 || rotation == 3)
-			cols [i] = in_width - 1 - i * in_width / out_width;
-		else
-			cols [i] = i * in_width / out_width;
-	}
-
-	if (rotation == BW_ROTATION_0 || rotation == BW_ROTATION_180) {
-		*out_rotated_width = out_width;
-		*out_rotated_height = out_height;
-		*row_major = 1;
-	} else {
-		*out_rotated_width = out_height;
-		*out_rotated_height = out_width;
-		*row_major = 0;
-	}
-}
-
 static void
 prepare_mixer (float red, float green, float blue, int32_t *red_factor, int32_t *green_factor, int32_t *blue_factor)
 {
@@ -329,7 +290,6 @@ void
 bw_process_no_cache_8 (int width, int height,
 		       uint8_t *out_data, int out_pixel_stride, int out_row_stride,
 		       uint8_t *in_data, int in_pixel_stride, int in_row_stride,
-		       int num_cols, int *cols, int num_rows, int *rows, int row_major,
 		       float red, float green, float blue,
 		       int num_contrast_layers, contrast_layer_t *contrast_layers,
 		       float tint_hue, float tint_amount,
@@ -347,125 +307,64 @@ bw_process_no_cache_8 (int width, int height,
 	sample_t out_pixel [3];
 	int grain_buffer_index = 0;
 
-	for (i = 0; i < num_cols; ++i)
-		assert (cols [i] >= 0 && cols [i] < width);
-	for (i = 0; i < num_rows; ++i)
-		assert (rows [i] >= 0 && rows [i] < height);
-
 	prepare_mixer (red, green, blue, &red_factor, &green_factor, &blue_factor);
 	prepare_tint (tint_hue, tint_amount, &i, &f, &saturation);
 
 	if (vignetting_curve) {
-		vsquares_x = prepare_vignetting_squares (num_cols);
-		vsquares_y = prepare_vignetting_squares (num_rows);
+		vsquares_x = prepare_vignetting_squares (width);
+		vsquares_y = prepare_vignetting_squares (height);
 	}
 
-	if (row_major) {
-		out_row = out_data;
-		for (row = 0; row < num_rows; ++row) {
-			uint8_t *out = out_row;
-			uint8_t *in_row = in_data + rows [row] * in_row_stride;
-			sample_t row_square = 0;
-			int grain_buffer_increment = random () % GRAIN_BUFFER_INCREMENT_MAX + 1;
+	out_row = out_data;
+	for (row = 0; row < height; ++row) {
+		uint8_t *out = out_row;
+		uint8_t *in_row = in_data + row * in_row_stride;
+		sample_t row_square = 0;
+		int grain_buffer_increment = random () % GRAIN_BUFFER_INCREMENT_MAX + 1;
 
-			if (vignetting_curve)
-				row_square = vsquares_y [row];
+		if (vignetting_curve)
+			row_square = vsquares_y [row];
 
-			for (col = 0; col < num_cols; ++col) {
-				int pixel = rows [row] * width + cols [col];
-				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
-				sample_t in [3];
-				sample_t vignetting, grain;
+		for (col = 0; col < width; ++col) {
+			int pixel = row * width + col;
+			uint8_t *in_8 = in_row + col * in_pixel_stride;
+			sample_t in [3];
+			sample_t vignetting, grain;
 
-				if (vignetting_curve) {
-					sample_t col_square = vsquares_x [col];
-					sample_t square = row_square + col_square;
-					vignetting = vignetting_curve [square >> CURVE_SHIFT];
-				} else {
-					vignetting = FLOAT_TO_SAMPLE (1.0f);
-				}
+			if (vignetting_curve) {
+				sample_t col_square = vsquares_x [col];
+				sample_t square = row_square + col_square;
+				vignetting = vignetting_curve [square >> CURVE_SHIFT];
+			} else {
+				vignetting = FLOAT_TO_SAMPLE (1.0f);
+			}
 
-				if (grain_buffer) {
-					grain = grain_buffer [grain_buffer_index];
+			if (grain_buffer) {
+				grain = grain_buffer [grain_buffer_index];
 
-					grain_buffer_index += grain_buffer_increment;
-					if (grain_buffer_index >= GRAIN_BUFFER_SIZE)
-						grain_buffer_index -= GRAIN_BUFFER_SIZE;
-				} else {
-					grain = SAMPLE_MAX / 2;
-				}
+				grain_buffer_index += grain_buffer_increment;
+				if (grain_buffer_index >= GRAIN_BUFFER_SIZE)
+					grain_buffer_index -= GRAIN_BUFFER_SIZE;
+			} else {
+				grain = SAMPLE_MAX / 2;
+			}
 
-				in [0] = (sample_t)in_8 [0] << 8;
-				in [1] = (sample_t)in_8 [1] << 8;
-				in [2] = (sample_t)in_8 [2] << 8;
+			in [0] = (sample_t)in_8 [0] << 8;
+			in [1] = (sample_t)in_8 [1] << 8;
+			in [2] = (sample_t)in_8 [2] << 8;
 
 #define PIXEL_OUT out_pixel
 #include "procfunc.h"
 #undef PIXEL_OUT
 
-				out [0] = out_pixel [0] >> 8;
-				out [1] = out_pixel [1] >> 8;
-				out [2] = out_pixel [2] >> 8;
+			out [0] = out_pixel [0] >> 8;
+			out [1] = out_pixel [1] >> 8;
+			out [2] = out_pixel [2] >> 8;
 
-				out += out_pixel_stride;
-			}
-
-			out_row += out_row_stride;
+			out += out_pixel_stride;
 		}
-	} else {
-		for (row = 0; row < num_rows; ++row) {
-			uint8_t *in_row = in_data + rows [row] * in_row_stride;
-			uint8_t *out;
-			sample_t row_square = 0;
-			int grain_buffer_increment = random () % GRAIN_BUFFER_INCREMENT_MAX + 1;
 
-			if (vignetting_curve)
-				row_square = vsquares_y [row];
-
-			out_row = out_data + row * out_pixel_stride;
-			out = out_row;
-
-			for (col = 0; col < num_cols; ++col) {
-				int pixel = rows [row] * width + cols [col];
-				uint8_t *in_8 = in_row + cols [col] * in_pixel_stride;
-				sample_t in [3];
-				sample_t vignetting, grain;
-
-				if (vignetting_curve) {
-					sample_t col_square = vsquares_x [col];
-					sample_t square = row_square + col_square;
-					vignetting = vignetting_curve [square >> CURVE_SHIFT];
-				} else {
-					vignetting = FLOAT_TO_SAMPLE (1.0f);
-				}
-
-				if (grain_buffer) {
-					grain = grain_buffer [grain_buffer_index];
-
-					grain_buffer_index += grain_buffer_increment;
-					if (grain_buffer_index >= GRAIN_BUFFER_SIZE)
-						grain_buffer_index -= GRAIN_BUFFER_SIZE;
-				} else {
-					grain = SAMPLE_MAX / 2;
-				}
-
-				in [0] = (sample_t)in_8 [0] << 8;
-				in [1] = (sample_t)in_8 [1] << 8;
-				in [2] = (sample_t)in_8 [2] << 8;
-
-#define PIXEL_OUT out_pixel
-#include "procfunc.h"
-#undef PIXEL_OUT
-
-				out [0] = out_pixel [0] >> 8;
-				out [1] = out_pixel [1] >> 8;
-				out [2] = out_pixel [2] >> 8;
-
-				out += out_row_stride;
-			}
-
-			out_row += out_row_stride;
-		}
+		out_row += out_row_stride;
 	}
 
 	if (vignetting_curve) {
@@ -614,30 +513,19 @@ main (int argc, char *argv[])
 	sample_t brighten_curve [CURVE_NUM];
 	sample_t darken_curve [CURVE_NUM];
 	sample_t *vignetting_curve, *grain_buffer;
-	int *rows, *cols;
 	contrast_layer_t layers[3];
 	int i;
 	int x, y;
-	int rotation = 0;
-	int row_major, out_rotated_width, out_rotated_height;
 
-	assert (argc == 2 || argc == 3);
+	assert (argc == 2);
 
 	orig = read_image (argv[1], &width, &height);
 	assert (orig != NULL);
 
 	printf("loaded\n");
 
-	if (argc == 3) {
-		rotation = atoi (argv [2]);
-		assert (rotation >= 0 && rotation < 4);
-	}
-
 	out_width = width;
 	out_height = height;
-
-	bw_make_rows_cols (width, height, out_width, out_height, rotation,
-			   &rows, &cols, &out_rotated_width, &out_rotated_height, &row_major);
 
 	for (i = 0; i < CURVE_NUM; ++i) {
 		contrast_curve [i] = (sample_t)i << CURVE_SHIFT;
@@ -676,13 +564,12 @@ main (int argc, char *argv[])
 	output = (unsigned char*)malloc (out_width * out_height * 3);
 	assert (output != NULL);
 
-	for (i = 0; i < 100; ++i) {
+	for (i = 0; i < 200; ++i) {
 		bw_process_no_cache_8 (width, height,
-				       output, 3, out_rotated_width * 3,
+				       output, 3, out_width * 3,
 				       orig, 3, width * 3,
-				       out_width, cols, out_height, rows, row_major,
 				       0.5, 0.3, 0.2,
-				       3, layers,
+				       1, layers,
 				       23.0, 0.1,
 				       vignetting_curve,
 				       grain_buffer);
@@ -690,7 +577,7 @@ main (int argc, char *argv[])
 
 	printf("processed\n");
 
-	write_image ("/tmp/beidel2.png", out_rotated_width, out_rotated_height, output, 3, out_rotated_width * 3, IMAGE_FORMAT_PNG);
+	write_image ("/tmp/beidel2.png", out_width, out_height, output, 3, width * 3, IMAGE_FORMAT_PNG);
 
 	return 0;
 }
