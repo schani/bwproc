@@ -79,13 +79,15 @@ make_logistic_contrast_curve (float v)
 }
 
 sample_t*
-bw_make_inverted_contrast_curve (void)
+bw_make_inverted_contrast_curve (float min, float max)
 {
 	sample_t *curve = alloc_curve ();
 	int i;
 
-	for (i = 0; i < CURVE_NUM; ++i)
-		curve [i] = FLOAT_TO_SAMPLE (1.0 - (float)i / (float)(CURVE_NUM - 1));
+	for (i = 0; i < CURVE_NUM; ++i) {
+		float inverted = 1.0 - (float)i / (float)(CURVE_NUM - 1);
+		curve [i] = FLOAT_TO_SAMPLE (min + inverted * (max - min));
+	}
 
 	return curve;
 }
