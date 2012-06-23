@@ -277,7 +277,7 @@ static sample_t*
 prepare_vignetting_squares (int num_pixels)
 {
 	float middle = num_pixels / 2.0;
-	sample_t *squares = malloc (sizeof (int) * num_pixels);
+	sample_t *squares = malloc (sizeof (sample_t) * num_pixels);
 	int i;
 
 	assert (squares);
